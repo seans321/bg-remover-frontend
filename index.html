@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>一键抠图 - 纯前端背景移除工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        
+        .upload-section {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 30px;
+            border: 3px dashed #ddd;
+            border-radius: 10px;
+            transition: border-color 0.3s ease;
+        }
+        
+        .upload-section.drag-over {
+            border-color: #667eea;
+            background-color: rgba(102, 126, 234, 0.1);
+        }
+        
+        .upload-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+        
+        .upload-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        #file-input {
+            display: none;
+        }
+        
+        .preview-container {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .image-section {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .image-section h3 {
+            text-align: center;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .image-wrapper {
+            position: relative;
+            width: 100%;
+            height: 300px;
+            border: 2px solid #eee;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: #f8f9fa;
+        }
+        
+        .image-wrapper img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        
+        .controls {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .remove-btn {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+        
+        .remove-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .remove-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .download-section {
+            text-align: center;
+            margin-top: 20px;
+        }
+        
+        .download-btn {
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: transform 0.2s ease;
+        }
+        
+        .download-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .download-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .placeholder-text {
+            color: #999;
+            font-style: italic;
+        }
+        
+        @media (max-width: 768px) {
+            .preview-container {
+                flex-direction: column;
+            }
+            
+            .image-section {
+                min-width: 100%;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>✨ 一键抠图</h1>
+        <p class="subtitle">纯前端背景移除工具 - 无需上传图片到服务器</p>
+        
+        <div class="upload-section" id="drop-zone">
+            <p>📁 拖拽图片到这里或点击按钮选择图片</p>
+            <button class="upload-btn" id="upload-btn">选择图片</button>
+            <input type="file" id="file-input" accept="image/*">
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>正在处理图片，请稍候...</p>
+        </div>
+        
+        <div class="preview-container">
+            <div class="image-section">
+                <h3>原始图片</h3>
+                <div class="image-wrapper">
+                    <img id="original-img" src="" alt="Original Image" style="display: none;">
+                    <span class="placeholder-text" id="original-placeholder">未选择图片</span>
+                </div>
+            </div>
+            
+            <div class="image-section">
+                <h3>移除背景</h3>
+                <div class="image-wrapper">
+                    <img id="result-img" src="" alt="Result Image" style="display: none;">
+                    <span class="placeholder-text" id="result-placeholder">等待处理</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button class="remove-btn" id="remove-btn" disabled>🚀 一键移除背景</button>
+        </div>
+        
+        <div class="download-section">
+            <a id="download-link" class="download-btn" style="display: none;" download="background_removed.png">📥 下载结果</a>
+        </div>
+    </div>
+
+    <!-- 引入 Rembg WASM 库 -->
+    <script src="https://cdn.jsdelivr.net/npm/rembg-browser@0.0.8/dist/rembg.min.js"></script>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileInput = document.getElementById('file-input');
+            const uploadBtn = document.getElementById('upload-btn');
+            const dropZone = document.getElementById('drop-zone');
+            const originalImg = document.getElementById('original-img');
+            const resultImg = document.getElementById('result-img');
+            const removeBtn = document.getElementById('remove-btn');
+            const loading = document.getElementById('loading');
+            const downloadLink = document.getElementById('download-link');
+            const originalPlaceholder = document.getElementById('original-placeholder');
+            const resultPlaceholder = document.getElementById('result-placeholder');
+            
+            let currentImage = null;
+            
+            // 文件输入事件
+            uploadBtn.addEventListener('click', () => {
+                fileInput.click();
+            });
+            
+            fileInput.addEventListener('change', handleFileSelect);
+            
+            // 拖放事件
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('drag-over');
+            });
+            
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('drag-over');
+            });
+            
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-over');
+                
+                if (e.dataTransfer.files.length) {
+                    handleFiles(e.dataTransfer.files);
+                }
+            });
+            
+            // 处理文件选择
+            function handleFileSelect(e) {
+                if (e.target.files.length) {
+                    handleFiles(e.target.files);
+                }
+            }
+            
+            function handleFiles(files) {
+                const file = files[0];
+                if (file && file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        currentImage = e.target.result;
+                        originalImg.src = currentImage;
+                        originalImg.style.display = 'block';
+                        originalPlaceholder.style.display = 'none';
+                        
+                        // 重置结果区域
+                        resultImg.style.display = 'none';
+                        resultPlaceholder.style.display = 'block';
+                        resultPlaceholder.textContent = '等待处理';
+                        downloadLink.style.display = 'none';
+                        
+                        removeBtn.disabled = false;
+                    };
+                    
+                    reader.readAsDataURL(file);
+                } else {
+                    alert('请选择有效的图片文件！');
+                }
+            }
+            
+            // 移除背景事件
+            removeBtn.addEventListener('click', async () => {
+                if (!currentImage) return;
+                
+                try {
+                    loading.style.display = 'block';
+                    removeBtn.disabled = true;
+                    
+                    // 使用 rembg-browser 库移除背景
+                    const result = await rembg.remove(currentImage);
+                    
+                    resultImg.src = result;
+                    resultImg.style.display = 'block';
+                    resultPlaceholder.style.display = 'none';
+                    
+                    downloadLink.href = result;
+                    downloadLink.style.display = 'inline-block';
+                    
+                    loading.style.display = 'none';
+                } catch (error) {
+                    console.error('处理图片时出错:', error);
+                    alert('处理图片时出现错误，请重试！');
+                    loading.style.display = 'none';
+                    removeBtn.disabled = false;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
