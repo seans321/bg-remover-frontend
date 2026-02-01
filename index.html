@@ -216,6 +216,14 @@
             border-left: 5px solid #2ecc71;
         }
         
+        .instructions {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
         @media (max-width: 768px) {
             .preview-container {
                 flex-direction: column;
@@ -236,6 +244,10 @@
         <h1>✨ 一键抠图</h1>
         <p class="subtitle">纯前端背景移除工具 - 无需上传图片到服务器</p>
         
+        <div class="instructions">
+            <p><strong>💡 使用提示：</strong>首次使用需要下载模型文件（约50MB），可能需要几分钟，请耐心等待</p>
+        </div>
+        
         <div class="upload-section" id="drop-zone">
             <p>📁 拖拽图片到这里或点击按钮选择图片</p>
             <button class="upload-btn" id="upload-btn">选择图片</button>
@@ -244,7 +256,7 @@
         
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <p>正在处理图片，请稍候... （首次使用需下载模型文件，可能需要几分钟）</p>
+            <p id="loading-text">正在处理图片，请稍候...</p>
         </div>
         
         <div class="preview-container">
@@ -276,8 +288,8 @@
 
     <div id="notification" class="notification"></div>
 
-    <!-- 引入更稳定的 Rembg WASM 库 -->
-    <script src="https://unpkg.com/@img.ly/background-remover@1.0.0/dist/imgly-background-remover.min.js"></script>
+    <!-- 使用更可靠的客户端背景移除库 -->
+    <script src="https://cdn.jsdelivr.net/npm/rembg-browser@0.0.8/dist/rembg.min.js"></script>
     
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -288,13 +300,13 @@
             const resultImg = document.getElementById('result-img');
             const removeBtn = document.getElementById('remove-btn');
             const loading = document.getElementById('loading');
+            const loadingText = document.getElementById('loading-text');
             const downloadLink = document.getElementById('download-link');
             const originalPlaceholder = document.getElementById('original-placeholder');
             const resultPlaceholder = document.getElementById('result-placeholder');
             const notification = document.getElementById('notification');
             
             let currentImage = null;
-            let modelLoaded = false;
             
             // 显示通知
             function showNotification(message, isError = false) {
@@ -376,17 +388,24 @@
                 
                 try {
                     loading.style.display = 'block';
+                    loadingText.textContent = '正在初始化模型...（首次使用需下载模型文件，可能需要几分钟）';
                     removeBtn.disabled = true;
-                    showNotification('正在初始化模型...', false);
                     
-                    // 使用更稳定的背景移除库
-                    const blob = await fetch(currentImage).then(r => r.blob());
+                    // 从数据URL创建blob
+                    const response = await fetch(currentImage);
+                    const blob = await response.blob();
                     
-                    // 调用 background-remover 库
-                    const output = await removeBackground(blob);
+                    // 使用 rembg-browser 库移除背景
+                    // 等待库加载完成
+                    if (typeof rembg === 'undefined') {
+                        throw new Error('背景移除库未加载完成，请刷新页面重试');
+                    }
+                    
+                    loadingText.textContent = '正在移除背景...';
+                    const result = await rembg.remove(blob);
                     
                     // 创建结果图片URL
-                    const resultUrl = URL.createObjectURL(output);
+                    const resultUrl = URL.createObjectURL(result);
                     
                     resultImg.src = resultUrl;
                     resultImg.style.display = 'block';
@@ -402,52 +421,17 @@
                     console.error('处理图片时出错:', error);
                     loading.style.display = 'none';
                     removeBtn.disabled = false;
-                    showNotification('处理失败: ' + error.message, true);
+                    
+                    // 根据错误类型提供更具体的错误消息
+                    if (error.message.includes('not a function')) {
+                        showNotification('背景移除库加载失败，请刷新页面重试', true);
+                    } else if (error.message.includes('NetworkError')) {
+                        showNotification('模型加载失败，可能需要良好的网络连接', true);
+                    } else {
+                        showNotification('处理失败: ' + error.message, true);
+                    }
                 }
             });
-            
-            // 初始化背景移除函数
-            async function removeBackground(blob) {
-                // 使用 browser-image-downloader 库作为备选
-                // 如果上面的库不可用，使用这个方法
-                return new Promise((resolve, reject) => {
-                    // 创建临时 canvas 来处理图像
-                    const img = new Image();
-                    img.onload = function() {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = img.width;
-                        canvas.height = img.height;
-                        
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0);
-                        
-                        // 使用客户端库进行背景移除
-                        // 这里我们使用一个模拟实现，实际的背景移除库可能需要额外加载
-                        try {
-                            // 尝试使用客户端背景移除库
-                            if (typeof ImageLy !== 'undefined') {
-                                // 实际实现会调用真正的库
-                                ImageLy.BackgroundRemover({
-                                    assetPath: "https://cdn.jsdelivr.net/npm/@img.ly/background-remover@1.0.0/dist/",
-                                }).then((instance) => {
-                                    instance.apply(document.querySelector('#original-img')).then((result) => {
-                                        resolve(result);
-                                    }).catch(reject);
-                                }).catch(reject);
-                            } else {
-                                // 如果库不可用，给出提示
-                                reject(new Error("背景移除库未正确加载，请刷新页面重试"));
-                            }
-                        } catch (e) {
-                            // 降级到浏览器内置功能
-                            resolve(blob);
-                        }
-                    };
-                    
-                    img.onerror = reject;
-                    img.src = URL.createObjectURL(blob);
-                });
-            }
         });
     </script>
 </body>
