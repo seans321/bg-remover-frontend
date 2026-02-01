@@ -222,6 +222,16 @@
             border-radius: 10px;
             margin: 20px 0;
             text-align: center;
+            font-size: 0.9em;
+        }
+        
+        .browser-warning {
+            background: #fff3cd;
+            color: #856404;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border: 1px solid #ffeaa7;
         }
         
         @media (max-width: 768px) {
@@ -244,8 +254,18 @@
         <h1>✨ 一键抠图</h1>
         <p class="subtitle">纯前端背景移除工具 - 无需上传图片到服务器</p>
         
+        <div class="browser-warning">
+            <strong>⚠️ 重要提示：</strong>首次使用需要下载模型文件（约50MB），请确保网络连接稳定
+        </div>
+        
         <div class="instructions">
-            <p><strong>💡 使用提示：</strong>首次使用需要下载模型文件（约50MB），可能需要几分钟，请耐心等待</p>
+            <p><strong>💡 使用步骤：</strong></p>
+            <ol style="text-align: left; margin: 10px 0 10px 20px;">
+                <li>点击"选择图片"按钮或拖拽图片到上传区域</li>
+                <li>点击"一键移除背景"按钮</li>
+                <li>首次使用需下载模型文件，可能需要几分钟</li>
+                <li>处理完成后可下载结果图片</li>
+            </ol>
         </div>
         
         <div class="upload-section" id="drop-zone">
@@ -288,8 +308,9 @@
 
     <div id="notification" class="notification"></div>
 
-    <!-- 使用更可靠的客户端背景移除库 -->
-    <script src="https://cdn.jsdelivr.net/npm/rembg-browser@0.0.8/dist/rembg.min.js"></script>
+    <!-- 使用更稳定和广受认可的客户端背景移除库 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.0.5/dist/body-pix.min.js"></script>
     
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -307,6 +328,7 @@
             const notification = document.getElementById('notification');
             
             let currentImage = null;
+            let net = null;
             
             // 显示通知
             function showNotification(message, isError = false) {
@@ -319,8 +341,37 @@
                 }, 5000);
             }
             
+            // 初始化BodyPix模型
+            async function loadModel() {
+                try {
+                    loadingText.textContent = '正在加载AI模型...（首次使用需要几分钟）';
+                    showNotification('正在加载AI模型，请稍候...', false);
+                    
+                    // 加载BodyPix模型
+                    net = await bodyPix.load({
+                        architecture: 'MobileNetV1',
+                        outputStride: 16,
+                        multiplier: 0.75,
+                        quantBytes: 2
+                    });
+                    
+                    showNotification('模型加载完成，可以开始处理图片', false);
+                    return true;
+                } catch (error) {
+                    console.error('模型加载失败:', error);
+                    showNotification('模型加载失败: ' + error.message, true);
+                    return false;
+                }
+            }
+            
             // 文件输入事件
-            uploadBtn.addEventListener('click', () => {
+            uploadBtn.addEventListener('click', async () => {
+                // 尝试预先加载模型
+                if (!net) {
+                    const success = await loadModel();
+                    if (!success) return;
+                }
+                
                 fileInput.click();
             });
             
@@ -336,9 +387,15 @@
                 dropZone.classList.remove('drag-over');
             });
             
-            dropZone.addEventListener('drop', (e) => {
+            dropZone.addEventListener('drop', async (e) => {
                 e.preventDefault();
                 dropZone.classList.remove('drag-over');
+                
+                // 尝试预先加载模型
+                if (!net) {
+                    const success = await loadModel();
+                    if (!success) return;
+                }
                 
                 if (e.dataTransfer.files.length) {
                     handleFiles(e.dataTransfer.files);
@@ -347,6 +404,11 @@
             
             // 处理文件选择
             function handleFileSelect(e) {
+                if (!net) {
+                    showNotification('请先等待模型加载完成', true);
+                    return;
+                }
+                
                 if (e.target.files.length) {
                     handleFiles(e.target.files);
                 }
@@ -386,52 +448,109 @@
                     return;
                 }
                 
+                if (!net) {
+                    showNotification('模型尚未加载完成，请稍候...', true);
+                    return;
+                }
+                
                 try {
                     loading.style.display = 'block';
-                    loadingText.textContent = '正在初始化模型...（首次使用需下载模型文件，可能需要几分钟）';
+                    loadingText.textContent = '正在分析图片...';
                     removeBtn.disabled = true;
                     
-                    // 从数据URL创建blob
-                    const response = await fetch(currentImage);
-                    const blob = await response.blob();
+                    // 创建临时图像元素
+                    const tempImg = new Image();
+                    tempImg.crossOrigin = 'anonymous';
                     
-                    // 使用 rembg-browser 库移除背景
-                    // 等待库加载完成
-                    if (typeof rembg === 'undefined') {
-                        throw new Error('背景移除库未加载完成，请刷新页面重试');
-                    }
+                    tempImg.onload = async function() {
+                        try {
+                            loadingText.textContent = '正在移除背景...';
+                            
+                            // 使用BodyPix进行分割
+                            const segmentation = await net.segmentPerson(tempImg, {
+                                flipHorizontal: false,
+                                internalResolution: 'high',
+                                segmentationThreshold: 0.7
+                            });
+                            
+                            // 应用遮罩
+                            const mask = bodyPix.toMask(segmentation, 
+                                { r: 0, g: 0, b: 0, a: 255 },  // 背景为透明
+                                { r: 0, g: 0, b: 0, a: 0 }     // 前景保持原样
+                            );
+                            
+                            // 创建画布来处理图像
+                            const canvas = document.createElement('canvas');
+                            canvas.width = tempImg.width;
+                            canvas.height = tempImg.height;
+                            
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(tempImg, 0, 0);
+                            
+                            // 获取图像数据并应用遮罩
+                            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                            const data = imageData.data;
+                            
+                            for (let i = 0; i < mask.data.length; i++) {
+                                // mask.data[i] 是 alpha 值 (0-255)
+                                // 每个像素有4个值 (R, G, B, A)，所以alpha索引是 i*4+3
+                                const pixelIdx = i * 4 + 3; // Alpha通道索引
+                                if (pixelIdx < data.length) {
+                                    data[pixelIdx] = mask.data[i]; // 设置alpha值
+                                }
+                            }
+                            
+                            ctx.putImageData(imageData, 0, 0);
+                            
+                            // 将结果转换为Blob
+                            canvas.toBlob(function(blob) {
+                                if (blob) {
+                                    const resultUrl = URL.createObjectURL(blob);
+                                    
+                                    resultImg.src = resultUrl;
+                                    resultImg.style.display = 'block';
+                                    resultPlaceholder.style.display = 'none';
+                                    
+                                    // 设置下载链接
+                                    downloadLink.href = resultUrl;
+                                    downloadLink.style.display = 'inline-block';
+                                    
+                                    loading.style.display = 'none';
+                                    showNotification('背景移除完成！', false);
+                                } else {
+                                    throw new Error('处理结果为空');
+                                }
+                            }, 'image/png');
+                        } catch (err) {
+                            console.error('处理图片时出错:', err);
+                            loading.style.display = 'none';
+                            removeBtn.disabled = false;
+                            showNotification('处理失败: ' + err.message, true);
+                        }
+                    };
                     
-                    loadingText.textContent = '正在移除背景...';
-                    const result = await rembg.remove(blob);
+                    tempImg.onerror = function() {
+                        loading.style.display = 'none';
+                        removeBtn.disabled = false;
+                        showNotification('图片加载失败', true);
+                    };
                     
-                    // 创建结果图片URL
-                    const resultUrl = URL.createObjectURL(result);
-                    
-                    resultImg.src = resultUrl;
-                    resultImg.style.display = 'block';
-                    resultPlaceholder.style.display = 'none';
-                    
-                    // 设置下载链接
-                    downloadLink.href = resultUrl;
-                    downloadLink.style.display = 'inline-block';
-                    
-                    loading.style.display = 'none';
-                    showNotification('背景移除完成！', false);
+                    tempImg.src = currentImage;
                 } catch (error) {
                     console.error('处理图片时出错:', error);
                     loading.style.display = 'none';
                     removeBtn.disabled = false;
                     
-                    // 根据错误类型提供更具体的错误消息
-                    if (error.message.includes('not a function')) {
-                        showNotification('背景移除库加载失败，请刷新页面重试', true);
-                    } else if (error.message.includes('NetworkError')) {
-                        showNotification('模型加载失败，可能需要良好的网络连接', true);
+                    if (error.message.includes('Failed to fetch')) {
+                        showNotification('网络请求失败，请检查网络连接', true);
                     } else {
                         showNotification('处理失败: ' + error.message, true);
                     }
                 }
             });
+            
+            // 页面加载时提示用户模型将被加载
+            showNotification('页面加载中... 准备加载AI模型', false);
         });
     </script>
 </body>
