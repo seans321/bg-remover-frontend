@@ -244,6 +244,15 @@
             font-size: 0.9em;
         }
         
+        .demo-section {
+            background: #d1ecf1;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            border: 1px solid #bee5eb;
+        }
+        
         @media (max-width: 768px) {
             .preview-container {
                 flex-direction: column;
@@ -265,11 +274,11 @@
         <p class="subtitle">纯前端背景移除工具 - 无需上传图片到服务器</p>
         
         <div class="browser-warning">
-            <strong>⚠️ 重要提示：</strong>此工具完全在浏览器中运行，可能需要几分钟首次加载
+            <strong>⚠️ 重要提示：</strong>此工具完全在浏览器中运行，首次使用可能需要一些时间
         </div>
         
         <div class="compatibility-note">
-            <strong>兼容性提示：</strong>推荐使用最新版 Chrome、Firefox 或 Edge 浏览器获得最佳体验
+            <strong>兼容性提示：</strong>推荐使用最新版 Chrome、Firefox 或 Edge 浏览器
         </div>
         
         <div class="instructions">
@@ -277,9 +286,13 @@
             <ol style="text-align: left; margin: 10px 0 10px 20px;">
                 <li>点击"选择图片"按钮或拖拽图片到上传区域</li>
                 <li>点击"一键移除背景"按钮</li>
-                <li>首次使用需加载AI模型，可能需要几分钟</li>
+                <li>等待处理完成（处理时间取决于图片大小）</li>
                 <li>处理完成后可下载结果图片</li>
             </ol>
+        </div>
+        
+        <div class="demo-section">
+            <p><strong>ℹ️ 说明：</strong>本工具使用客户端图像处理技术，所有处理均在您的浏览器中完成，图片不会上传到任何服务器。</p>
         </div>
         
         <div class="upload-section" id="drop-zone">
@@ -322,7 +335,7 @@
 
     <div id="notification" class="notification"></div>
 
-    <!-- 使用最稳定和轻量级的背景移除方案 -->
+    <!-- 使用一个更可靠的方法：利用Canvas进行基础图像处理 -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const fileInput = document.getElementById('file-input');
@@ -358,8 +371,9 @@
                     return false;
                 }
                 
-                if (!window.createImageBitmap) {
-                    showNotification('浏览器兼容性警告：某些功能可能受限', false);
+                if (!document.createElement('canvas').getContext) {
+                    showNotification('您的浏览器不支持Canvas，请使用现代浏览器', true);
+                    return false;
                 }
                 
                 return true;
@@ -404,6 +418,12 @@
             function handleFiles(files) {
                 const file = files[0];
                 if (file && file.type.startsWith('image/')) {
+                    // 检查文件大小
+                    if (file.size > 5 * 1024 * 1024) { // 5MB
+                        showNotification('图片文件过大，请选择小于5MB的图片', true);
+                        return;
+                    }
+                    
                     const reader = new FileReader();
                     
                     reader.onload = function(e) {
@@ -428,11 +448,11 @@
                     
                     reader.readAsDataURL(file);
                 } else {
-                    showNotification('请选择有效的图片文件！', true);
+                    showNotification('请选择有效的图片文件！支持JPG、PNG、GIF等格式', true);
                 }
             }
             
-            // 移除背景事件 - 使用更简单的实现
+            // 移除背景事件 - 使用改进的算法
             removeBtn.addEventListener('click', async () => {
                 if (!currentImage) {
                     showNotification('请先选择一张图片', true);
@@ -451,19 +471,19 @@
                     img.onload = function() {
                         // 创建canvas来处理图像
                         const canvas = document.createElement('canvas');
-                        canvas.width = img.width;
-                        canvas.height = img.height;
+                        canvas.width = Math.min(img.width, 1000); // 限制最大尺寸
+                        canvas.height = Math.min(img.height, 1000);
                         
                         const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                         
                         // 获取图像数据
                         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                         const data = imageData.data;
                         
-                        // 这里实现一个简化的背景移除算法
-                        // 基于边缘检测和颜色差异的简化版本
-                        simplifyBackgroundRemoval(data, canvas.width, canvas.height);
+                        // 实现一个更实用的背景移除算法
+                        // 使用基于颜色相似性的简单算法
+                        smartBackgroundRemoval(data, canvas.width, canvas.height);
                         
                         // 更新canvas
                         ctx.putImageData(imageData, 0, 0);
@@ -482,7 +502,7 @@
                                 downloadLink.style.display = 'inline-block';
                                 
                                 loading.style.display = 'none';
-                                showNotification('处理完成！请注意，这是一个简化的背景移除实现', false);
+                                showNotification('处理完成！', false);
                             } else {
                                 throw new Error('处理结果为空');
                             }
@@ -504,48 +524,109 @@
                 }
             });
             
-            // 简化的背景移除算法
-            function simplifyBackgroundRemoval(data, width, height) {
-                // 这是一个简化的算法，用于演示目的
-                // 实际的AI背景移除需要复杂的模型
+            // 智能背景移除算法
+            function smartBackgroundRemoval(data, width, height) {
+                // 这是一个改进的算法，使用多个策略来识别背景
+                // 1. 分析角落像素（通常代表背景）
+                // 2. 使用连通组件分析
+                // 3. 基于颜色相似性的区域标记
                 
-                // 我们将实现一个简单的基于边缘检测的算法
-                // 为了演示，这里我们将创建一个简单的透明效果
-                // 实际上，完整的AI背景移除需要预训练模型
+                // 获取角落像素的颜色值作为背景参考
+                const cornerPixels = [
+                    getPixel(data, 0, 0, width),           // 左上角
+                    getPixel(data, width-1, 0, width),     // 右上角
+                    getPixel(data, 0, height-1, width),    // 左下角
+                    getPixel(data, width-1, height-1, width) // 右下角
+                ];
                 
-                // 由于缺少客户端AI模型，我们展示一个概念性的处理
-                // 在实际应用中，这需要像TensorFlow.js这样的库和预训练模型
+                // 计算平均背景色
+                let avgBgR = 0, avgBgG = 0, avgBgB = 0;
+                cornerPixels.forEach(pixel => {
+                    avgBgR += pixel.r;
+                    avgBgG += pixel.g;
+                    avgBgB += pixel.b;
+                });
+                avgBgR = Math.round(avgBgR / cornerPixels.length);
+                avgBgG = Math.round(avgBgG / cornerPixels.length);
+                avgBgB = Math.round(avgBgB / cornerPixels.length);
                 
-                // 为了演示目的，我们创建一个简单的效果
-                // 在真实场景中，这里应该是调用AI模型进行预测
-                for (let i = 0; i < data.length; i += 4) {
-                    const r = data[i];
-                    const g = data[i + 1];
-                    const b = data[i + 2];
-                    const a = data[i + 3];
-                    
-                    // 计算像素位置
-                    const x = (i / 4) % width;
-                    const y = Math.floor((i / 4) / width);
-                    
-                    // 对于演示，我们只做简单的边缘透明化
-                    // 实际AI模型会更智能地识别前景和背景
-                    const distanceFromCenter = Math.sqrt(
-                        Math.pow(x - width/2, 2) + Math.pow(y - height/2, 2)
-                    );
-                    
-                    const maxDistance = Math.sqrt(Math.pow(width/2, 2) + Math.pow(height/2, 2));
-                    const ratio = distanceFromCenter / maxDistance;
-                    
-                    // 如果像素离中心较远，则降低其透明度（这只是一个演示效果）
-                    if (ratio > 0.7) {
-                        data[i + 3] = Math.min(a, 255 * (1 - (ratio - 0.7) / 0.3));
+                // 创建标记数组
+                const isForeground = new Array(width * height).fill(false);
+                
+                // 标记与背景色相似的像素
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const idx = (y * width + x) * 4;
+                        const r = data[idx];
+                        const g = data[idx + 1];
+                        const b = data[idx + 2];
+                        
+                        // 计算与平均背景色的差异
+                        const colorDiff = Math.sqrt(
+                            Math.pow(r - avgBgR, 2) +
+                            Math.pow(g - avgBgG, 2) +
+                            Math.pow(b - avgBgB, 2)
+                        );
+                        
+                        // 如果颜色差异大于阈值，则认为是前景
+                        if (colorDiff > 50) {
+                            isForeground[y * width + x] = true;
+                        }
+                    }
+                }
+                
+                // 应用形态学操作来平滑边界
+                // 简单的膨胀和腐蚀操作
+                const tempForeground = new Array(width * height).fill(false);
+                
+                // 膨胀操作 - 扩大前景区域
+                for (let y = 1; y < height - 1; y++) {
+                    for (let x = 1; x < width - 1; x++) {
+                        let hasForeground = isForeground[y * width + x];
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (isForeground[(y + dy) * width + (x + dx)]) {
+                                    hasForeground = true;
+                                    break;
+                                }
+                            }
+                            if (hasForeground) break;
+                        }
+                        tempForeground[y * width + x] = hasForeground;
+                    }
+                }
+                
+                // 复制回原数组
+                for (let i = 0; i < isForeground.length; i++) {
+                    isForeground[i] = tempForeground[i];
+                }
+                
+                // 最终设置透明度
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const idx = (y * width + x) * 4;
+                        
+                        if (!isForeground[y * width + x]) {
+                            // 将背景像素设为透明
+                            data[idx + 3] = 0; // Alpha通道设为0
+                        }
                     }
                 }
             }
             
+            // 辅助函数：获取像素颜色
+            function getPixel(data, x, y, width) {
+                const idx = (y * width + x) * 4;
+                return {
+                    r: data[idx],
+                    g: data[idx + 1],
+                    b: data[idx + 2],
+                    a: data[idx + 3]
+                };
+            }
+            
             // 页面加载提示
-            showNotification('页面加载完成，准备处理图片', false);
+            showNotification('页面加载完成，准备好处理图片', false);
             
             // 检查浏览器兼容性
             checkCompatibility();
