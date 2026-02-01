@@ -253,6 +253,13 @@
             border: 1px solid #bee5eb;
         }
         
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        
         @media (max-width: 768px) {
             .preview-container {
                 flex-direction: column;
@@ -331,11 +338,14 @@
         <div class="download-section">
             <a id="download-link" class="download-btn" style="display: none;" download="background_removed.png">📥 下载结果</a>
         </div>
+        
+        <div class="footer">
+            <p>© 2026 一键抠图 - 纯前端背景移除工具</p>
+        </div>
     </div>
 
     <div id="notification" class="notification"></div>
 
-    <!-- 使用一个更可靠的方法：利用Canvas进行基础图像处理 -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const fileInput = document.getElementById('file-input');
@@ -452,7 +462,7 @@
                 }
             }
             
-            // 移除背景事件 - 使用改进的算法
+            // 移除背景事件 - 使用简化的边缘检测算法
             removeBtn.addEventListener('click', async () => {
                 if (!currentImage) {
                     showNotification('请先选择一张图片', true);
@@ -471,8 +481,8 @@
                     img.onload = function() {
                         // 创建canvas来处理图像
                         const canvas = document.createElement('canvas');
-                        canvas.width = Math.min(img.width, 1000); // 限制最大尺寸
-                        canvas.height = Math.min(img.height, 1000);
+                        canvas.width = Math.min(img.width, 800); // 限制最大尺寸
+                        canvas.height = Math.min(img.height, 600);
                         
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -481,9 +491,9 @@
                         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                         const data = imageData.data;
                         
-                        // 实现一个更实用的背景移除算法
-                        // 使用基于颜色相似性的简单算法
-                        smartBackgroundRemoval(data, canvas.width, canvas.height);
+                        // 使用简化的背景移除算法
+                        // 基于边缘检测的背景移除
+                        edgeBasedBackgroundRemoval(data, canvas.width, canvas.height);
                         
                         // 更新canvas
                         ctx.putImageData(imageData, 0, 0);
@@ -524,105 +534,91 @@
                 }
             });
             
-            // 智能背景移除算法
-            function smartBackgroundRemoval(data, width, height) {
-                // 这是一个改进的算法，使用多个策略来识别背景
-                // 1. 分析角落像素（通常代表背景）
-                // 2. 使用连通组件分析
-                // 3. 基于颜色相似性的区域标记
+            // 基于边缘检测的背景移除算法
+            function edgeBasedBackgroundRemoval(data, width, height) {
+                // 简化的边缘检测算法
+                // 通过计算相邻像素的颜色差异来识别边缘
                 
-                // 获取角落像素的颜色值作为背景参考
-                const cornerPixels = [
-                    getPixel(data, 0, 0, width),           // 左上角
-                    getPixel(data, width-1, 0, width),     // 右上角
-                    getPixel(data, 0, height-1, width),    // 左下角
-                    getPixel(data, width-1, height-1, width) // 右下角
-                ];
+                // 计算梯度幅度
+                const gradient = new Array(width * height).fill(0);
                 
-                // 计算平均背景色
-                let avgBgR = 0, avgBgG = 0, avgBgB = 0;
-                cornerPixels.forEach(pixel => {
-                    avgBgR += pixel.r;
-                    avgBgG += pixel.g;
-                    avgBgB += pixel.b;
-                });
-                avgBgR = Math.round(avgBgR / cornerPixels.length);
-                avgBgG = Math.round(avgBgG / cornerPixels.length);
-                avgBgB = Math.round(avgBgB / cornerPixels.length);
-                
-                // 创建标记数组
-                const isForeground = new Array(width * height).fill(false);
-                
-                // 标记与背景色相似的像素
-                for (let y = 0; y < height; y++) {
-                    for (let x = 0; x < width; x++) {
-                        const idx = (y * width + x) * 4;
-                        const r = data[idx];
-                        const g = data[idx + 1];
-                        const b = data[idx + 2];
-                        
-                        // 计算与平均背景色的差异
-                        const colorDiff = Math.sqrt(
-                            Math.pow(r - avgBgR, 2) +
-                            Math.pow(g - avgBgG, 2) +
-                            Math.pow(b - avgBgB, 2)
-                        );
-                        
-                        // 如果颜色差异大于阈值，则认为是前景
-                        if (colorDiff > 50) {
-                            isForeground[y * width + x] = true;
-                        }
-                    }
-                }
-                
-                // 应用形态学操作来平滑边界
-                // 简单的膨胀和腐蚀操作
-                const tempForeground = new Array(width * height).fill(false);
-                
-                // 膨胀操作 - 扩大前景区域
                 for (let y = 1; y < height - 1; y++) {
                     for (let x = 1; x < width - 1; x++) {
-                        let hasForeground = isForeground[y * width + x];
-                        for (let dy = -1; dy <= 1; dy++) {
-                            for (let dx = -1; dx <= 1; dx++) {
-                                if (isForeground[(y + dy) * width + (x + dx)]) {
-                                    hasForeground = true;
-                                    break;
-                                }
-                            }
-                            if (hasForeground) break;
-                        }
-                        tempForeground[y * width + x] = hasForeground;
+                        const idx = (y * width + x) * 4;
+                        
+                        // 计算x方向和y方向的梯度
+                        const idxLeft = ((y) * width + (x - 1)) * 4;
+                        const idxRight = ((y) * width + (x + 1)) * 4;
+                        const idxTop = ((y - 1) * width + (x)) * 4;
+                        const idxBottom = ((y + 1) * width + (x)) * 4;
+                        
+                        // 计算RGB三通道的梯度
+                        const dxR = data[idxRight] - data[idxLeft];
+                        const dxG = data[idxRight + 1] - data[idxLeft + 1];
+                        const dxB = data[idxRight + 2] - data[idxLeft + 2];
+                        
+                        const dyR = data[idxBottom] - data[idxTop];
+                        const dyG = data[idxBottom + 1] - data[idxTop + 1];
+                        const dyB = data[idxBottom + 2] - data[idxTop + 2];
+                        
+                        // 组合梯度
+                        const gradMag = Math.sqrt(
+                            Math.pow(dxR, 2) + Math.pow(dxG, 2) + Math.pow(dxB, 2) +
+                            Math.pow(dyR, 2) + Math.pow(dyG, 2) + Math.pow(dyB, 2)
+                        );
+                        
+                        gradient[y * width + x] = gradMag;
                     }
                 }
                 
-                // 复制回原数组
-                for (let i = 0; i < isForeground.length; i++) {
-                    isForeground[i] = tempForeground[i];
+                // 计算阈值
+                let sum = 0;
+                let count = 0;
+                for (let i = 0; i < gradient.length; i++) {
+                    if (gradient[i] > 0) {
+                        sum += gradient[i];
+                        count++;
+                    }
                 }
+                const avgGradient = count > 0 ? sum / count : 0;
+                const threshold = avgGradient * 0.8; // 使用平均值的80%作为阈值
                 
-                // 最终设置透明度
+                // 应用边缘检测结果
                 for (let y = 0; y < height; y++) {
                     for (let x = 0; x < width; x++) {
                         const idx = (y * width + x) * 4;
                         
-                        if (!isForeground[y * width + x]) {
-                            // 将背景像素设为透明
-                            data[idx + 3] = 0; // Alpha通道设为0
+                        // 如果不是边缘区域，降低透明度
+                        if (y >= 1 && y < height - 1 && x >= 1 && x < width - 1) {
+                            if (gradient[y * width + x] < threshold) {
+                                // 基于距离边界的距离来调整透明度
+                                const distToEdgeX = Math.min(x, width - 1 - x);
+                                const distToEdgeY = Math.min(y, height - 1 - y);
+                                const minDistToEdge = Math.min(distToEdgeX, distToEdgeY);
+                                
+                                // 中央区域更可能属于前景
+                                const centerX = width / 2;
+                                const centerY = height / 2;
+                                const distToCenter = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+                                const maxDistToCenter = Math.sqrt(Math.pow(centerX, 2) + Math.pow(centerY, 2));
+                                
+                                // 计算综合权重
+                                const edgeWeight = gradient[y * width + x] / threshold;
+                                const centerWeight = 1 - (distToCenter / maxDistToCenter);
+                                const boundaryWeight = minDistToEdge / Math.min(width, height) * 2;
+                                
+                                // 综合判断是否为背景
+                                if (edgeWeight < 0.5 && centerWeight < 0.3) {
+                                    // 将像素设为半透明或透明
+                                    data[idx + 3] = Math.max(0, data[idx + 3] - 150);
+                                }
+                            }
+                        } else {
+                            // 边缘像素更可能是背景
+                            data[idx + 3] = Math.max(0, data[idx + 3] - 100);
                         }
                     }
                 }
-            }
-            
-            // 辅助函数：获取像素颜色
-            function getPixel(data, x, y, width) {
-                const idx = (y * width + x) * 4;
-                return {
-                    r: data[idx],
-                    g: data[idx + 1],
-                    b: data[idx + 2],
-                    a: data[idx + 3]
-                };
             }
             
             // 页面加载提示
